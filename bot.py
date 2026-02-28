@@ -3,12 +3,12 @@ import numpy as np
 import ccxt
 import requests
 import os
+import time
 from datetime import datetime
 
 # ======================================================================
 # --- 1. CẤU HÌNH BOT LIVE & TELEGRAM (GITHUB ACTIONS MODE) ---
 # ======================================================================
-# Lấy Token và Chat ID từ GitHub Secrets (Bảo mật tuyệt đối)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
@@ -24,12 +24,11 @@ RISK_MATRIX = {
     }
 }
 
-# Đổi lại sàn MEXC theo yêu cầu
 exchange = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
 def send_telegram_message(msg):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ LỖI: Chưa cài đặt TELEGRAM_TOKEN hoặc TELEGRAM_CHAT_ID trong GitHub Secrets.")
+        print("⚠️ LỖI: Chưa cài đặt TELEGRAM_TOKEN/CHAT_ID trong GitHub Secrets.")
         print("Nội dung tin nhắn nháp:\n", msg)
         return
         
@@ -41,7 +40,7 @@ def send_telegram_message(msg):
         print(f"Lỗi gửi Telegram: {e}")
 
 # ======================================================================
-# --- 2. SIGNAL AGENT (GIỮ NGUYÊN LOGIC CAUSAL 100%) ---
+# --- 2. SIGNAL AGENT (BỘ NÃO SMC ĐÃ ĐƯỢC FIX LỖI INDEX) ---
 # ======================================================================
 class SignalAgent:
     def __init__(self):
@@ -72,19 +71,27 @@ class SignalAgent:
 
     def check_liquidity_sweep(self, df, idx, direction):
         if idx - 45 < 0: return False
-        lookback = df.iloc[idx-45:idx]
+        # FIX 1: Dừng quét lookback ở idx-3 để không tự so với OB
+        lookback = df.iloc[idx-45:idx-2] 
         liq = lookback['low'].min() if direction == "BUY" else lookback['high'].max()
-        prev = df.iloc[idx-1]
-        if direction == "BUY": return prev['low'] <= liq * 0.999 and prev['close'] < prev['open']
-        else: return prev['high'] >= liq * 1.001 and prev['close'] > prev['open']
+        
+        # FIX 1.2: Check nến OB (idx-2) thay vì nến đẩy (idx-1)
+        ob_candle = df.iloc[idx-2]
+        if direction == "BUY": 
+            return ob_candle['low'] <= liq * 0.999 and ob_candle['close'] < ob_candle['open']
+        else: 
+            return ob_candle['high'] >= liq * 1.001 and ob_candle['close'] > ob_candle['open']
 
     def check_unicorn_breaker(self, df, idx, direction, fvg_bottom, fvg_top):
         if idx - 50 < 0: return False
-        lookback = df.iloc[idx-50:idx]
+        # FIX 2: Không lấy dính vào nến OB hiện tại
+        lookback = df.iloc[idx-50:idx-2] 
         for i in range(len(lookback)-1, max(0, len(lookback)-25), -1):
             c = lookback.iloc[i]
-            if direction == "BUY" and c['close'] < c['open']: return True
-            elif direction == "SELL" and c['close'] > c['open']: return True
+            if direction == "BUY" and c['close'] < c['open']:
+                if fvg_bottom - 0.3*(fvg_top-fvg_bottom) <= c['high'] <= fvg_top: return True
+            elif direction == "SELL" and c['close'] > c['open']:
+                if fvg_bottom <= c['low'] <= fvg_top + 0.3*(fvg_top-fvg_bottom): return True
         return False
 
     def calculate_ote_score(self, df, idx, direction, fvg_bottom, fvg_top):
@@ -135,6 +142,10 @@ def fetch_live_data(symbol, timeframe, limit=300):
 
 def main():
     print(f"[{datetime.now()}] 🚀 Kích hoạt quy trình quét thị trường MEXC...")
+    
+    # FIX 4: Chờ API nhả nến mới (GitHub Actions chạy quá nhanh có thể kéo nhầm nến cũ)
+    time.sleep(10)
+    
     signal_agent = SignalAgent()
     alerts_found = 0
 
@@ -145,14 +156,15 @@ def main():
         
         if df_15m is None or df_1h is None or df_4h is None: continue
         
-        # CHỈ LẤY CÂY NẾN VỪA MỚI ĐÓNG CỬA (Index -2 vì -1 là nến hiện tại đang chạy dở)
+        # CHỈ LẤY CÂY NẾN VỪA MỚI ĐÓNG CỬA (Index -2)
         idx = len(df_15m) - 2
         
-        trend_1h = "UP" if df_1h['close'].iloc[-1] > df_1h['ema50'].iloc[-1] > df_1h['ema200'].iloc[-1] * 1.002 else \
-                   "DOWN" if df_1h['close'].iloc[-1] < df_1h['ema50'].iloc[-1] < df_1h['ema200'].iloc[-1] * 0.998 else "SIDEWAY"
+        # FIX 3: Dùng nến 1H, 4H đã ĐÓNG CỬA (iloc[-2]) để xác định Trend cứng
+        trend_1h = "UP" if df_1h['close'].iloc[-2] > df_1h['ema50'].iloc[-2] > df_1h['ema200'].iloc[-2] * 1.002 else \
+                   "DOWN" if df_1h['close'].iloc[-2] < df_1h['ema50'].iloc[-2] < df_1h['ema200'].iloc[-2] * 0.998 else "SIDEWAY"
                    
-        trend_4h = "UP" if df_4h['close'].iloc[-1] > df_4h['ema50'].iloc[-1] > df_4h['ema200'].iloc[-1] * 1.002 else \
-                   "DOWN" if df_4h['close'].iloc[-1] < df_4h['ema50'].iloc[-1] < df_4h['ema200'].iloc[-1] * 0.998 else "SIDEWAY"
+        trend_4h = "UP" if df_4h['close'].iloc[-2] > df_4h['ema50'].iloc[-2] > df_4h['ema200'].iloc[-2] * 1.002 else \
+                   "DOWN" if df_4h['close'].iloc[-2] < df_4h['ema50'].iloc[-2] < df_4h['ema200'].iloc[-2] * 0.998 else "SIDEWAY"
         
         if trend_1h == "UNKNOWN" or trend_4h == "UNKNOWN": continue
 
