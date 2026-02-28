@@ -1,0 +1,30 @@
+name: SMC Bot Scanner (15m)
+
+on:
+  schedule:
+    # Chạy mỗi 15 phút (ở phút 0, 15, 30, 45 của mỗi giờ)
+    - cron: '0,15,30,45 * * * *'
+  workflow_dispatch: # Cho phép bạn bấm nút Run thủ công trên GitHub để test thử
+
+jobs:
+  scan-market:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install pandas numpy ccxt requests
+
+      - name: Run SMC Bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python bot_live.py
