@@ -13,16 +13,12 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 PAIRS = ['BTC/USDT:USDT', 'ETH/USDT:USDT']
-MIN_SCORE_EXECUTE = 4.5
+MIN_SCORE_EXECUTE = 5.5
 
 # ĐÃ TỐI ƯU TP (TAKE PROFIT) HỢP LÝ HƠN ĐỂ DỄ CẮN FULL WIN
 RISK_MATRIX = {
-    'BTC/USDT:USDT': {
-        '15m': {'sl_atr': 0.6, 'rr2': 2.5} 
-    },
-    'ETH/USDT:USDT': {
-        '15m': {'sl_atr': 0.65, 'rr2': 3.0}
-    }
+    'BTC/USDT:USDT': {'15m': {'sl_atr': 0.75, 'rr2': 2.5}},
+    'ETH/USDT:USDT': {'15m': {'sl_atr': 0.75, 'rr2': 2.5}}
 }
 
 exchange = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
