@@ -8,10 +8,10 @@ from datetime import datetime
 # ======================================================================
 # --- 1. CẤU HÌNH BOT LIVE & TELEGRAM ---
 # ======================================================================
-# Lấy Token và Chat ID từ GitHub Secrets (Bảo mật tuyệt đối)
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "ĐIỀN_TOKEN_NẾU_TEST_LOCAL")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "ĐIỀN_CHAT_ID_NẾU_TEST_LOCAL")
+# Đã điền cứng Token và Chat ID của bạn (Nên dùng biến môi trường nếu Repo Public)
 
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 PAIRS = ['BTC/USDT:USDT', 'ETH/USDT:USDT']
 MIN_SCORE_EXECUTE = 4.5
 
@@ -20,20 +20,18 @@ RISK_MATRIX = {
     'ETH/USDT:USDT': {'sl_atr': 0.65, 'rr2': 3.5}
 }
 
-# Sử dụng MEXC hoặc OKX tùy bạn (Không cần API Key vì kéo data public)
-exchange = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
+exchange = ccxt.okx({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
 def send_telegram_message(msg):
-    if TELEGRAM_TOKEN == "ĐIỀN_TOKEN_NẾU_TEST_LOCAL":
-        print("⚠️ Chưa có Token Telegram. Nội dung tin nhắn:")
-        print(msg)
-        return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}
-    requests.post(url, json=payload)
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Lỗi gửi Telegram: {e}")
 
 # ======================================================================
-# --- 2. SIGNAL AGENT (GIỮ NGUYÊN BỘ NÃO 4.5 ĐIỂM) ---
+# --- 2. SIGNAL AGENT (BỘ NÃO SMC CAUSAL) ---
 # ======================================================================
 class SignalAgent:
     def __init__(self):
@@ -100,15 +98,15 @@ class SignalAgent:
         if self.calculate_ote_score(df, idx, direction, fvg_bottom, fvg_top) > 0: score += 3.0; active_setups.append("OTE")
         
         if idx >= 30:
-            vol_avg = df['vol'].iloc[idx-30:idx+1].mean()
-            if df['vol'].iloc[idx] > vol_avg * 2.3: score += 2.5; active_setups.append("ClimaxVol")
-            elif df['vol'].iloc[idx] > vol_avg * 1.55: score += 1.5
+            vol_avg = df['vol'].iloc[idx-30:idx-1].mean()
+            if df['vol'].iloc[idx-1] > vol_avg * 2.3: score += 2.5; active_setups.append("Momentum")
+            elif df['vol'].iloc[idx-1] > vol_avg * 1.55: score += 1.5
             
         if self.check_strong_displacement(df, idx-1, direction, atr_series): score += 1.5
         return round(score, 1), active_setups
 
 # ======================================================================
-# --- 3. LIVE EXECUTION LOGIC ---
+# --- 3. LIVE EXECUTION LOGIC (KÉO DATA VÀ BÁO CÁO) ---
 # ======================================================================
 def fetch_live_data(symbol, timeframe, limit=300):
     try:
@@ -126,22 +124,20 @@ def fetch_live_data(symbol, timeframe, limit=300):
         return None
 
 def main():
-    print(f"[{datetime.now()}] 🚀 Kích hoạt quy trình quét thị trường...")
+    print(f"[{datetime.now()}] 🚀 Kích hoạt quy trình quét thị trường OKX...")
     signal_agent = SignalAgent()
     alerts_found = 0
 
     for symbol in PAIRS:
-        # Kéo data 15m, 1h, 4h
         df_15m = fetch_live_data(symbol, '15m')
         df_1h = fetch_live_data(symbol, '1h')
         df_4h = fetch_live_data(symbol, '4h')
         
         if df_15m is None or df_1h is None or df_4h is None: continue
         
-        # CHỈ LẤY CÂY NẾN VỪA MỚI ĐÓNG CỬA (Index -2 vì -1 là nến hiện tại đang chạy)
+        # CHỈ LẤY CÂY NẾN VỪA MỚI ĐÓNG CỬA (Index -2)
         idx = len(df_15m) - 2
         
-        # Xác định Trend
         trend_1h = "UP" if df_1h['close'].iloc[-1] > df_1h['ema50'].iloc[-1] > df_1h['ema200'].iloc[-1] * 1.002 else \
                    "DOWN" if df_1h['close'].iloc[-1] < df_1h['ema50'].iloc[-1] < df_1h['ema200'].iloc[-1] * 0.998 else "SIDEWAY"
                    
@@ -150,7 +146,6 @@ def main():
         
         if trend_1h == "UNKNOWN" or trend_4h == "UNKNOWN": continue
 
-        # Quét FVG
         has_fvg, fvg_dir, fvg_bottom, fvg_top = signal_agent.check_fvg(df_15m, idx)
         if not has_fvg: continue
 
@@ -160,7 +155,6 @@ def main():
         
         if not direction or not signal_agent.check_strong_displacement(df_15m, idx-1, direction, df_15m['atr']): continue
 
-        # Tính Score
         score, active = signal_agent.calculate_setup_score(df_15m, idx, direction, fvg_bottom, fvg_top, df_15m['atr'])
         
         if score >= MIN_SCORE_EXECUTE:
