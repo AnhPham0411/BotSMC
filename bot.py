@@ -6,23 +6,33 @@ import os
 from datetime import datetime
 
 # ======================================================================
-# --- 1. CẤU HÌNH BOT LIVE & TELEGRAM ---
+# --- 1. CẤU HÌNH BOT LIVE & TELEGRAM (GITHUB ACTIONS MODE) ---
 # ======================================================================
-# Đã điền cứng Token và Chat ID của bạn (Nên dùng biến môi trường nếu Repo Public)
-
+# Lấy Token và Chat ID từ GitHub Secrets (Bảo mật tuyệt đối)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
 PAIRS = ['BTC/USDT:USDT', 'ETH/USDT:USDT']
 MIN_SCORE_EXECUTE = 4.5
 
 RISK_MATRIX = {
-    'BTC/USDT:USDT': {'sl_atr': 0.6, 'rr2': 3.0},
-    'ETH/USDT:USDT': {'sl_atr': 0.65, 'rr2': 3.5}
+    'BTC/USDT:USDT': {
+        '15m': {'sl_atr': 0.6, 'rr2': 3.0}
+    },
+    'ETH/USDT:USDT': {
+        '15m': {'sl_atr': 0.65, 'rr2': 3.5}
+    }
 }
 
-exchange = ccxt.okx({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
+# Đổi lại sàn MEXC theo yêu cầu
+exchange = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
 
 def send_telegram_message(msg):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("⚠️ LỖI: Chưa cài đặt TELEGRAM_TOKEN hoặc TELEGRAM_CHAT_ID trong GitHub Secrets.")
+        print("Nội dung tin nhắn nháp:\n", msg)
+        return
+        
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}
     try:
@@ -31,7 +41,7 @@ def send_telegram_message(msg):
         print(f"Lỗi gửi Telegram: {e}")
 
 # ======================================================================
-# --- 2. SIGNAL AGENT (BỘ NÃO SMC CAUSAL) ---
+# --- 2. SIGNAL AGENT (GIỮ NGUYÊN LOGIC CAUSAL 100%) ---
 # ======================================================================
 class SignalAgent:
     def __init__(self):
@@ -106,7 +116,7 @@ class SignalAgent:
         return round(score, 1), active_setups
 
 # ======================================================================
-# --- 3. LIVE EXECUTION LOGIC (KÉO DATA VÀ BÁO CÁO) ---
+# --- 3. LIVE EXECUTION LOGIC (KÉO DATA VÀ BÁO CÁO TỪ MEXC) ---
 # ======================================================================
 def fetch_live_data(symbol, timeframe, limit=300):
     try:
@@ -124,7 +134,7 @@ def fetch_live_data(symbol, timeframe, limit=300):
         return None
 
 def main():
-    print(f"[{datetime.now()}] 🚀 Kích hoạt quy trình quét thị trường OKX...")
+    print(f"[{datetime.now()}] 🚀 Kích hoạt quy trình quét thị trường MEXC...")
     signal_agent = SignalAgent()
     alerts_found = 0
 
@@ -135,7 +145,7 @@ def main():
         
         if df_15m is None or df_1h is None or df_4h is None: continue
         
-        # CHỈ LẤY CÂY NẾN VỪA MỚI ĐÓNG CỬA (Index -2)
+        # CHỈ LẤY CÂY NẾN VỪA MỚI ĐÓNG CỬA (Index -2 vì -1 là nến hiện tại đang chạy dở)
         idx = len(df_15m) - 2
         
         trend_1h = "UP" if df_1h['close'].iloc[-1] > df_1h['ema50'].iloc[-1] > df_1h['ema200'].iloc[-1] * 1.002 else \
@@ -177,7 +187,7 @@ def main():
             emoji = "🟢" if direction == "BUY" else "🔴"
             msg = (
                 f"🚨 <b>SMC SETUP (Score: {score})</b> 🚨\n\n"
-                f"🪙 <b>Cặp:</b> {symbol} (15m)\n"
+                f"🪙 <b>Cặp:</b> {symbol} (15m MEXC)\n"
                 f"{emoji} <b>Hướng:</b> {direction} Limit\n"
                 f"🎯 <b>Entry Limit:</b> <code>{entry:.4f}</code>\n"
                 f"🛑 <b>Stoploss:</b> <code>{sl:.4f}</code>\n\n"
