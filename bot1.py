@@ -12,13 +12,15 @@ from datetime import datetime
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-PAIRS = ['BTC/USDT:USDT', 'ETH/USDT:USDT']
+PAIRS = ['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT']
 MIN_SCORE_EXECUTE = 5.5
 
-# ĐÃ TỐI ƯU TP (TAKE PROFIT) HỢP LÝ HƠN ĐỂ DỄ CẮN FULL WIN
+# CẬP NHẬT: Tùy chỉnh thông số cho độ giật râu của từng loại Coin
 RISK_MATRIX = {
-    'BTC/USDT:USDT': {'15m': {'sl_atr': 0.75, 'rr2': 2.5}},
-    'ETH/USDT:USDT': {'15m': {'sl_atr': 0.75, 'rr2': 2.5}}
+    'BTC/USDT:USDT': {'15m': {'sl_atr': 0.30, 'rr2': 2.0}},
+    'ETH/USDT:USDT': {'15m': {'sl_atr': 0.30, 'rr2': 2.0}},
+    # SOL biến động mạnh, hay giật râu 2 đầu nên phải để SL đệm xa hơn (0.75 ATR)
+    'SOL/USDT:USDT': {'15m': {'sl_atr': 0.75, 'rr2': 2.5}}
 }
 
 exchange = ccxt.mexc({'enableRateLimit': True, 'options': {'defaultType': 'swap'}})
@@ -137,9 +139,22 @@ def fetch_live_data(symbol, timeframe, limit=300):
         print(f"Lỗi kéo data {symbol} {timeframe}: {e}")
         return None
 
+def is_in_killzone():
+    dt = datetime.utcnow()
+    h = dt.hour
+    if 7 <= h < 10: return True
+    if 13 <= h < 16 or (h == 13 and dt.minute >= 30): return True
+    if 18 <= h < 20: return True
+    return False
+
 def main():
     print(f"[{datetime.now()}] 🚀 Kích hoạt quy trình quét thị trường MEXC...")
     
+    # Kích hoạt bộ lọc ICT Killzone (Chống nhiễu giờ Á)
+    if not is_in_killzone():
+        print("Trạng thái: Đang ngoài khung giờ Vàng (Killzones). Đứng ngoài thị trường để tránh chappy market. Zzz...")
+        return
+        
     # Chờ API nhả nến mới nếu GitHub Actions chạy trúng khoảnh khắc chuyển nến
     time.sleep(5) 
     
@@ -205,7 +220,7 @@ def main():
                 if age_minutes <= 25:
                     emoji = "🟢" if direction == "BUY" else "🔴"
                     msg = (
-                        f"🚨 <b>SMC SETUP (Score: {score})</b> 🚨\n"
+                        f"🚨 <b>ICT KILLZONE SETUP (Score: {score})</b> 🚨\n"
                         f"⏰ <i>Nến tạo lúc: {candle_time.strftime('%H:%M')} (Cách đây {age_minutes:.0f} phút)</i>\n\n"
                         f"🪙 <b>Cặp:</b> {symbol} (15m MEXC)\n"
                         f"{emoji} <b>Hướng:</b> {direction} Limit\n"
