@@ -28,11 +28,7 @@ jobs:
           pip install pandas numpy requests
           pip install ccxt==4.3.98
 
-      - name: Run SMC Bot
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python bot.py
+      
 
       - name: Run SMC Bot1
         env:
